@@ -21,12 +21,11 @@ class Settings(BaseSettings):
 
     deepgram_api_key: str = ""
 
-    # Temporary testing switches. When require_auth is False, every request is
-    # treated as a single fixed test user (no register/login needed). When
-    # require_subscription is False, the paywall gate is skipped. Flip both
-    # back to True before shipping.
-    require_auth: bool = False
-    require_subscription: bool = False
+    # Testing-only escape hatches, secure by default. Set REQUIRE_AUTH=false
+    # or REQUIRE_SUBSCRIPTION=false in .env to bypass login or the paywall
+    # during local testing — never in a deployed environment.
+    require_auth: bool = True
+    require_subscription: bool = True
 
 
 settings = Settings()
