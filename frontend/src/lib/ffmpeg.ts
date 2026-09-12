@@ -91,12 +91,26 @@ export async function extractAudio(file: File, onProgress?: (ratio: number) => v
 export interface ComposeBrainrotParams {
   sourceFile: File;
   gameplayFile: File;
-  assContent: string;
+  // Subtitles are optional: omit to export the plain overlay (source on top,
+  // gameplay on bottom) with no burned-in captions.
+  assContent?: string;
   onProgress?: (ratio: number) => void;
 }
 
+function buildFilterComplex(hasSubtitles: boolean): string {
+  const stackOutput = hasSubtitles ? "[stacked]" : "[outv]";
+  let filter =
+    "[0:v]scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,setsar=1[top];" +
+    "[1:v]scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,setsar=1[bottom];" +
+    `[top][bottom]vstack=inputs=2${stackOutput}`;
+  if (hasSubtitles) {
+    filter += ";[stacked]subtitles=subs.ass:fontsdir=/fonts[outv]";
+  }
+  return filter;
+}
+
 // Stacks the source clip on top and the gameplay clip on the bottom into a
-// 1080x1920 (9:16) canvas, then burns the subtitle track in a single pass.
+// 1080x1920 (9:16) canvas, optionally burning in the subtitle track.
 export async function composeBrainrotVideo({
   sourceFile,
   gameplayFile,
@@ -104,7 +118,10 @@ export async function composeBrainrotVideo({
   onProgress,
 }: ComposeBrainrotParams): Promise<Blob> {
   const ffmpeg = await loadFFmpeg();
-  await ensureFont(ffmpeg);
+  const hasSubtitles = Boolean(assContent);
+  if (hasSubtitles) {
+    await ensureFont(ffmpeg);
+  }
 
   const sourceName = `source${extOf(sourceFile.name)}`;
   const gameplayName = `gameplay${extOf(gameplayFile.name)}`;
@@ -112,13 +129,11 @@ export async function composeBrainrotVideo({
 
   await ffmpeg.writeFile(sourceName, await fetchFile(sourceFile));
   await ffmpeg.writeFile(gameplayName, await fetchFile(gameplayFile));
-  await ffmpeg.writeFile("subs.ass", assContent);
+  if (hasSubtitles) {
+    await ffmpeg.writeFile("subs.ass", assContent!);
+  }
 
-  const filterComplex =
-    "[0:v]scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,setsar=1[top];" +
-    "[1:v]scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,setsar=1[bottom];" +
-    "[top][bottom]vstack=inputs=2[stacked];" +
-    "[stacked]subtitles=subs.ass:fontsdir=/fonts[outv]";
+  const filterComplex = buildFilterComplex(hasSubtitles);
 
   progressHandler = onProgress;
 
@@ -151,12 +166,9 @@ export async function composeBrainrotVideo({
 
   const data = await ffmpeg.readFile(outputName);
 
-  await Promise.all([
-    ffmpeg.deleteFile(sourceName),
-    ffmpeg.deleteFile(gameplayName),
-    ffmpeg.deleteFile("subs.ass"),
-    ffmpeg.deleteFile(outputName),
-  ]);
+  const cleanup = [ffmpeg.deleteFile(sourceName), ffmpeg.deleteFile(gameplayName), ffmpeg.deleteFile(outputName)];
+  if (hasSubtitles) cleanup.push(ffmpeg.deleteFile("subs.ass"));
+  await Promise.all(cleanup);
 
   return new Blob([data as BlobPart], { type: "video/mp4" });
 }

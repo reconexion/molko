@@ -59,13 +59,17 @@ export function EditorPage() {
     }
   }
 
-  async function handleExport() {
-    if (!sourceFile || !gameplayFile || !words) return;
+  async function handleExport(withSubtitles: boolean) {
+    if (!sourceFile || !gameplayFile) return;
+    if (withSubtitles && !words) return;
+
     setError(null);
     setStage("exporting");
     setProgress(0);
     try {
-      const assContent = buildAssSubtitles(words);
+      assertWithinMemoryBudget([sourceFile, gameplayFile]);
+
+      const assContent = withSubtitles && words ? buildAssSubtitles(words) : undefined;
       const blob = await composeBrainrotVideo({
         sourceFile,
         gameplayFile,
@@ -76,7 +80,7 @@ export function EditorPage() {
       setStage("done");
     } catch (err) {
       setError(describeError(err));
-      setStage("ready");
+      setStage(words ? "ready" : "idle");
     }
   }
 
@@ -105,9 +109,18 @@ export function EditorPage() {
       {error && <p className="error">{error}</p>}
 
       {stage === "idle" && (
-        <button className="button" onClick={handleGenerateSubtitles} disabled={!sourceFile || !gameplayFile}>
-          Generar subtítulos
-        </button>
+        <div className="actions">
+          <button
+            className="button button-secondary"
+            onClick={() => handleExport(false)}
+            disabled={!sourceFile || !gameplayFile}
+          >
+            Exportar sin subtítulos
+          </button>
+          <button className="button" onClick={handleGenerateSubtitles} disabled={!sourceFile || !gameplayFile}>
+            Generar subtítulos
+          </button>
+        </div>
       )}
 
       {stage === "extracting-audio" && <ProgressBar label="Extrayendo audio del clip…" ratio={progress} />}
@@ -121,8 +134,8 @@ export function EditorPage() {
             <button className="button button-secondary" onClick={handleGenerateSubtitles}>
               Regenerar subtítulos
             </button>
-            <button className="button" onClick={handleExport}>
-              Exportar video
+            <button className="button" onClick={() => handleExport(true)}>
+              Exportar con subtítulos
             </button>
           </div>
         </div>
