@@ -16,3 +16,5 @@ frontend/public/ffmpeg/
 # General
 .DS_Store
 *.log
+.dev-pids
+.dev-logs/
