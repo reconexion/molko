@@ -21,5 +21,12 @@ class Settings(BaseSettings):
 
     deepgram_api_key: str = ""
 
+    # Temporary testing switches. When require_auth is False, every request is
+    # treated as a single fixed test user (no register/login needed). When
+    # require_subscription is False, the paywall gate is skipped. Flip both
+    # back to True before shipping.
+    require_auth: bool = False
+    require_subscription: bool = False
+
 
 settings = Settings()

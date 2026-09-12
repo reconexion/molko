@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { authApi, clearToken, getToken, setToken, type UserResponse } from "../lib/api";
+import { authApi, clearToken, setToken, type UserResponse } from "../lib/api";
 
 interface AuthContextValue {
   user: UserResponse | null;
@@ -17,10 +17,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refreshUser = useCallback(async () => {
-    if (!getToken()) {
-      setUser(null);
-      return;
-    }
+    // While the backend runs with REQUIRE_AUTH=false (see backend/.env), it
+    // answers /auth/me with a fixed test user even without a token, so this
+    // always attempts the call instead of skipping it when there's no token.
     try {
       const me = await authApi.me();
       setUser(me);
