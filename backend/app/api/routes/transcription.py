@@ -1,7 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, UploadFile, status
 
-from app.api.deps import require_active_subscription
-from app.models.user import User
 from app.schemas.transcription import TranscriptResponse
 from app.services.transcription_service import TranscriptionError, transcribe_audio
 
@@ -14,7 +12,6 @@ MAX_AUDIO_BYTES = 25 * 1024 * 1024  # 25MB, generous for a short brainrot clip's
 async def create_transcription(
     audio: UploadFile,
     language: str = "es",
-    _current_user: User = Depends(require_active_subscription),
 ):
     audio_bytes = await audio.read()
     if len(audio_bytes) > MAX_AUDIO_BYTES:

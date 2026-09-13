@@ -4,6 +4,21 @@ export interface AssWord {
   end: number;
 }
 
+// Keeps only the words that fall (at least partly) inside [start, start +
+// duration) and shifts their timestamps to be relative to that window, so
+// the resulting words can feed buildAssSubtitles() for one chunk of a
+// clip that's been split into several exported parts.
+export function sliceWordsForChunk(words: AssWord[], start: number, duration: number): AssWord[] {
+  const end = start + duration;
+  return words
+    .filter((w) => w.end > start && w.start < end)
+    .map((w) => ({
+      word: w.word,
+      start: Math.max(0, w.start - start),
+      end: Math.min(duration, w.end - start),
+    }));
+}
+
 const PLAY_RES_X = 1080;
 const PLAY_RES_Y = 1920;
 const BASE_COLOR = "FFFFFF"; // white, in ASS's &HBBGGRR& order

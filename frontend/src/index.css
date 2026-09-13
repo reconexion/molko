@@ -158,35 +158,6 @@ body {
   color: var(--muted);
 }
 
-.pricing-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 24px;
-}
-
-@media (max-width: 480px) {
-  .pricing-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.pricing-card {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
-  text-align: center;
-}
-
-.pricing-card-highlight {
-  border-color: var(--accent);
-}
-
-.price {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin: 8px 0 0;
-}
 
 .dropzone-row {
   display: grid;
@@ -236,6 +207,38 @@ body {
   word-break: break-all;
 }
 
+.gameplay-picker {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.gameplay-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gameplay-option {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  background: none;
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.gameplay-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.gameplay-option-selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .progress {
   margin: 24px 0;
 }
@@ -264,8 +267,20 @@ body {
   margin-top: 24px;
   display: flex;
   flex-direction: column;
+  gap: 32px;
+  align-items: center;
+}
+
+.export-result-item {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
   align-items: center;
+}
+
+.export-result-label {
+  font-weight: 600;
+  margin: 0;
 }
 
 .preview-video {

@@ -1,19 +1,25 @@
-// Copies the ffmpeg.wasm single-threaded core into public/ so it can be
-// served same-origin instead of fetched from a CDN at runtime.
+// Copies both the single-threaded and multi-threaded ffmpeg.wasm cores into
+// public/ so they can be served same-origin instead of fetched from a CDN at
+// runtime. lib/ffmpeg.ts picks between them at load time based on whether the
+// page is cross-origin isolated (see vite.config.ts).
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const srcDir = join(__dirname, "..", "node_modules", "@ffmpeg", "core", "dist", "esm");
-const destDir = join(__dirname, "..", "public", "ffmpeg");
+const publicDir = join(__dirname, "..", "public");
 
-if (!existsSync(destDir)) {
-  mkdirSync(destDir, { recursive: true });
+function copyCore(pkgName, files, destName) {
+  const srcDir = join(__dirname, "..", "node_modules", "@ffmpeg", pkgName, "dist", "esm");
+  const destDir = join(publicDir, destName);
+  if (!existsSync(destDir)) {
+    mkdirSync(destDir, { recursive: true });
+  }
+  for (const file of files) {
+    copyFileSync(join(srcDir, file), join(destDir, file));
+  }
+  console.log(`${pkgName} copied to public/${destName}/`);
 }
 
-for (const file of ["ffmpeg-core.js", "ffmpeg-core.wasm"]) {
-  copyFileSync(join(srcDir, file), join(destDir, file));
-}
-
-console.log("ffmpeg-core copied to public/ffmpeg/");
+copyCore("core", ["ffmpeg-core.js", "ffmpeg-core.wasm"], "ffmpeg");
+copyCore("core-mt", ["ffmpeg-core.js", "ffmpeg-core.wasm", "ffmpeg-core.worker.js"], "ffmpeg-mt");
