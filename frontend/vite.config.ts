@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -13,7 +14,12 @@ const crossOriginIsolationHeaders = {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': new URL('./src', import.meta.url).pathname,
+    },
+  },
   // @ffmpeg/ffmpeg spawns a worker that resolves its own core script URL;
   // Vite's dependency pre-bundling breaks that resolution, so these must
   // stay unbundled. See https://github.com/ffmpegwasm/ffmpeg.wasm/issues

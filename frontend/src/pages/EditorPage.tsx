@@ -1,23 +1,28 @@
 import { useState } from "react";
+import JSZip from "jszip";
 import { ApiError, transcriptionApi, type TranscriptWord } from "../lib/api";
-import { buildAssSubtitles, sliceWordsForChunk } from "../lib/ass";
+import { buildAssSubtitles, sliceWordsForChunk, type PartLabel } from "../lib/ass";
 import {
-  assertSourceDecodable,
   assertWithinMemoryBudget,
   composeBrainrotVideo,
+  ensureDecodableSource,
   extractAudio,
   getVideoDuration,
   MAX_CHUNK_SECONDS,
   planChunks,
   planGameplayWindow,
-  UnsupportedCodecError,
   VideoTooLargeError,
 } from "../lib/ffmpeg";
 import { VideoDropzone } from "../components/VideoDropzone";
 import { GameplayPicker } from "../components/GameplayPicker";
+import { Switch } from "../components/Switch";
+import { Button } from "../components/base/buttons/button";
+import { ProgressBarBase } from "../components/base/progress-indicators/progress-indicators";
+import { Badge } from "../components/base/badges/badges";
 
 type Stage =
   | "idle"
+  | "converting"
   | "extracting-audio"
   | "transcribing"
   | "ready"
@@ -26,6 +31,7 @@ type Stage =
 
 interface ExportResult {
   url: string;
+  blob: Blob;
   label: string;
   filename: string;
 }
@@ -40,8 +46,11 @@ export function EditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ExportResult[]>([]);
   const [chunkInfo, setChunkInfo] = useState<{ index: number; total: number } | null>(null);
+  const [zipping, setZipping] = useState(false);
+  const [showPartLabel, setShowPartLabel] = useState(false);
 
-  const busy = stage === "extracting-audio" || stage === "transcribing" || stage === "exporting";
+  const busy =
+    stage === "converting" || stage === "extracting-audio" || stage === "transcribing" || stage === "exporting";
 
   function reset(nextStage: Stage = "idle") {
     setError(null);
@@ -57,10 +66,20 @@ export function EditorPage() {
     reset();
     try {
       assertWithinMemoryBudget([sourceFile, gameplayFile]);
-      await assertSourceDecodable(sourceFile);
+      const readySource = await ensureDecodableSource(
+        sourceFile,
+        (status) => {
+          if (status === "converting") {
+            setStage("converting");
+            setProgress(0);
+          }
+        },
+        setProgress,
+      );
+      if (readySource !== sourceFile) setSourceFile(readySource);
 
       setStage("extracting-audio");
-      const audioBlob = await extractAudio(sourceFile, setProgress);
+      const audioBlob = await extractAudio(readySource, setProgress);
 
       setStage("transcribing");
       setProgress(0);
@@ -94,10 +113,21 @@ export function EditorPage() {
 
     try {
       assertWithinMemoryBudget([sourceFile, gameplayFile]);
-      await assertSourceDecodable(sourceFile);
+      const readySource = await ensureDecodableSource(
+        sourceFile,
+        (status) => {
+          if (status === "converting") {
+            setStage("converting");
+            setProgress(0);
+          }
+        },
+        setProgress,
+      );
+      if (readySource !== sourceFile) setSourceFile(readySource);
+      setStage("exporting");
 
       const [sourceDuration, gameplayDuration] = await Promise.all([
-        getVideoDuration(sourceFile),
+        getVideoDuration(readySource),
         getVideoDuration(gameplayFile),
       ]);
       // A clip longer than MAX_CHUNK_SECONDS gets split into consecutive
@@ -109,11 +139,14 @@ export function EditorPage() {
         setChunkInfo({ index, total: chunks.length });
         setProgress(0);
 
-        const chunkWords = withSubtitles && words ? sliceWordsForChunk(words, chunk.start, chunk.duration) : null;
-        const assContent = chunkWords ? buildAssSubtitles(chunkWords) : undefined;
+        const chunkWords = withSubtitles && words ? sliceWordsForChunk(words, chunk.start, chunk.duration) : [];
+        const partLabel: PartLabel | undefined =
+          showPartLabel && chunks.length > 1 ? { number: index + 1, duration: chunk.duration } : undefined;
+        const assContent =
+          chunkWords.length > 0 || partLabel ? buildAssSubtitles(chunkWords, partLabel) : undefined;
 
         const blob = await composeBrainrotVideo({
-          sourceFile,
+          sourceFile: readySource,
           gameplayFile,
           assContent,
           onProgress: setProgress,
@@ -123,6 +156,7 @@ export function EditorPage() {
 
         newResults.push({
           url: URL.createObjectURL(blob),
+          blob,
           label: chunks.length > 1 ? `Parte ${index + 1} de ${chunks.length}` : "video",
           filename: chunks.length > 1 ? `molko-brainrot-parte-${index + 1}.mp4` : "molko-brainrot.mp4",
         });
@@ -139,15 +173,38 @@ export function EditorPage() {
     }
   }
 
+  async function handleDownloadAllAsZip() {
+    if (results.length === 0) return;
+    setZipping(true);
+    try {
+      const zip = new JSZip();
+      for (const result of results) {
+        zip.file(result.filename, result.blob);
+      }
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "molko-brainrot-partes.zip";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setZipping(false);
+    }
+  }
+
   return (
-    <div className="card editor">
-      <h1>Nuevo video brainrot</h1>
-      <p className="muted">
-        Todo el procesamiento ocurre en tu navegador — tus videos no se suben a ningún servidor. Un clip fuente más
-        largo de {MAX_CHUNK_SECONDS}s se exporta en varias partes automáticamente.
+    <div className="w-full max-w-3xl rounded-2xl bg-primary p-6 shadow-xl ring-1 ring-secondary sm:p-8">
+      <h1 className="text-2xl font-bold text-primary">Nuevo video brainrot</h1>
+      <p className="mt-2 text-sm text-tertiary">
+        Todo el procesamiento ocurre en tu navegador. Un clip fuente más largo de {MAX_CHUNK_SECONDS}s se exporta en
+        varias partes automáticamente. Si el clip viene en AV1 (que el navegador no puede decodificar), se manda una
+        sola vez al backend local para convertirlo a H.264 antes de seguir.
       </p>
 
-      <div className="dropzone-row">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <VideoDropzone
           label="1. Clip fuente (con audio)"
           file={sourceFile}
@@ -164,43 +221,54 @@ export function EditorPage() {
         />
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="mt-4 text-sm text-error-primary">{error}</p>}
 
-      {stage === "idle" && (
-        <div className="actions">
-          <button
-            className="button button-secondary"
-            onClick={() => handleExport(false)}
-            disabled={!sourceFile || !gameplayFile}
-          >
-            Exportar sin subtítulos
-          </button>
-          <button className="button" onClick={handleGenerateSubtitles} disabled={!sourceFile || !gameplayFile}>
-            Generar subtítulos
-          </button>
+      {(stage === "idle" || stage === "ready") && (
+        <div className="mt-6">
+          <Switch
+            checked={showPartLabel}
+            onChange={setShowPartLabel}
+            disabled={busy}
+            label='Mostrar "Parte N" en el centro de cada parte'
+            hint="Solo aplica si el export queda dividido en varias partes"
+          />
         </div>
       )}
 
-      {stage === "extracting-audio" && <ProgressBar label="Extrayendo audio del clip…" ratio={progress} />}
-      {stage === "transcribing" && <ProgressBar label="Transcribiendo audio…" ratio={undefined} />}
+      {stage === "idle" && (
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Button color="success" onClick={() => handleExport(false)} isDisabled={!sourceFile || !gameplayFile}>
+            Exportar sin subtítulos
+          </Button>
+          <Button color="success" onClick={handleGenerateSubtitles} isDisabled={!sourceFile || !gameplayFile}>
+            Generar subtítulos
+          </Button>
+        </div>
+      )}
+
+      {stage === "converting" && (
+        <StageProgress label="Convirtiendo clip de AV1 a H.264 en el backend…" ratio={progress} />
+      )}
+      {stage === "extracting-audio" && <StageProgress label="Extrayendo audio del clip…" ratio={progress} />}
+      {stage === "transcribing" && <StageProgress label="Transcribiendo audio…" ratio={undefined} />}
 
       {stage === "ready" && words && (
-        <div className="transcript-preview">
-          <h2>Transcripción detectada</h2>
-          <p>{words.map((w) => w.word).join(" ")}</p>
-          <div className="actions">
-            <button className="button button-secondary" onClick={handleGenerateSubtitles}>
+        <div className="mt-6 border-t border-secondary pt-4">
+          <h2 className="text-md font-semibold text-primary">Transcripción detectada</h2>
+          <p className="mt-2 text-sm text-tertiary">{words.map((w) => w.word).join(" ")}</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Button color="success" onClick={handleGenerateSubtitles}>
               Regenerar subtítulos
-            </button>
-            <button className="button" onClick={() => handleExport(true)}>
+            </Button>
+            <Button color="success" onClick={() => handleExport(true)}>
               Exportar con subtítulos
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {stage === "exporting" && (
-        <ProgressBar
+        <StageProgress
           label={
             chunkInfo && chunkInfo.total > 1
               ? `Componiendo parte ${chunkInfo.index + 1} de ${chunkInfo.total}…`
@@ -211,14 +279,22 @@ export function EditorPage() {
       )}
 
       {stage === "done" && results.length > 0 && (
-        <div className="export-result">
+        <div className="mt-6 flex flex-col items-center gap-8">
+          {results.length > 1 && (
+            <Button color="success" onClick={handleDownloadAllAsZip} isDisabled={zipping} isLoading={zipping}>
+              {zipping ? "Preparando ZIP…" : `Descargar todo (${results.length} partes en .zip)`}
+            </Button>
+          )}
           {results.map((result) => (
-            <div key={result.url} className="export-result-item">
-              {results.length > 1 && <p className="export-result-label">{result.label}</p>}
-              <video src={result.url} controls className="preview-video" />
-              <a className="button" href={result.url} download={result.filename}>
+            <div
+              key={result.url}
+              className="flex w-full max-w-xs flex-col items-center gap-3 rounded-xl bg-secondary p-4 ring-1 ring-secondary"
+            >
+              {results.length > 1 && <Badge color="success">{result.label}</Badge>}
+              <video src={result.url} controls className="w-full rounded-lg" />
+              <Button color="success" href={result.url} download={result.filename} className="w-full">
                 Descargar {result.label}
-              </a>
+              </Button>
             </div>
           ))}
         </div>
@@ -227,23 +303,18 @@ export function EditorPage() {
   );
 }
 
-function ProgressBar({ label, ratio }: { label: string; ratio: number | undefined }) {
+function StageProgress({ label, ratio }: { label: string; ratio: number | undefined }) {
+  const value = ratio !== undefined ? Math.max(0, Math.min(100, Math.round(ratio * 100))) : 30;
   return (
-    <div className="progress">
-      <p>{label}</p>
-      <div className="progress-track">
-        <div
-          className="progress-fill"
-          style={{ width: ratio !== undefined ? `${Math.min(100, Math.round(ratio * 100))}%` : "30%" }}
-        />
-      </div>
+    <div className="mt-6">
+      <p className="mb-2 text-sm text-tertiary">{label}</p>
+      <ProgressBarBase value={value} className={ratio === undefined ? "animate-pulse" : undefined} />
     </div>
   );
 }
 
 function describeError(err: unknown): string {
   if (err instanceof VideoTooLargeError) return err.message;
-  if (err instanceof UnsupportedCodecError) return err.message;
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
   return "Ocurrió un error inesperado. Intenta de nuevo.";
