@@ -23,9 +23,18 @@ const PLAY_RES_X = 1080;
 const PLAY_RES_Y = 1920;
 const BASE_COLOR = "FFFFFF"; // white, in ASS's &HBBGGRR& order
 const HIGHLIGHT_COLOR = "00FFFF"; // yellow
+const PART_LABEL_COLOR = HIGHLIGHT_COLOR; // yellow, same as the active-word highlight
+const PART_LABEL_FONT = "Komika Axis";
 
 const MAX_WORDS_PER_CHUNK = 5;
 const MAX_CHUNK_DURATION_SECONDS = 3.2;
+
+// Shown dead-center on screen for the whole chunk when the export is split
+// into several parts and the "Parte N" option is enabled.
+export interface PartLabel {
+  number: number;
+  duration: number;
+}
 
 function formatAssTime(seconds: number): string {
   const centiseconds = Math.max(0, Math.round(seconds * 100));
@@ -62,7 +71,10 @@ function escapeAssText(text: string): string {
 
 // Builds one Dialogue line per word, always showing the full chunk text but
 // re-coloring the currently-spoken word — the CapCut-style active word highlight.
-export function buildAssSubtitles(words: AssWord[]): string {
+// `partLabel`, when given, adds a "PARTE N" line in Komika Axis dead-center on
+// screen for the chunk's whole duration — independent of whether there are any
+// caption words at all, so it also works on a plain (no-subtitles) export.
+export function buildAssSubtitles(words: AssWord[], partLabel?: PartLabel): string {
   const header = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${PLAY_RES_X}
@@ -73,6 +85,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,DejaVu Sans,68,&H${BASE_COLOR},&H${BASE_COLOR},&H00101010,&H64000000,1,0,0,0,100,100,0,0,1,5,0,2,60,60,140,1
+Style: Parte,${PART_LABEL_FONT},120,&H${PART_LABEL_COLOR},&H${PART_LABEL_COLOR},&H00101010,&H64000000,1,0,0,0,100,100,0,0,1,6,0,5,60,60,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -98,6 +111,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
       lines.push(`Dialogue: 0,${formatAssTime(start)},${formatAssTime(end)},Default,,0,0,0,,${text}`);
     });
+  }
+
+  if (partLabel) {
+    lines.push(
+      `Dialogue: 1,${formatAssTime(0)},${formatAssTime(partLabel.duration)},Parte,,0,0,0,,PARTE ${partLabel.number}`,
+    );
   }
 
   return header + lines.join("\n") + "\n";

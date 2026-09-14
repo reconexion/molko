@@ -75,5 +75,5 @@ Recomendado para cada archivo, para que no haya sorpresas de memoria ni de forma
 
 Como el procesamiento corre 100% en el cliente, el editor rechaza archivos de más de 300MB cada uno (o 450MB combinados) con un mensaje claro, para evitar que la pestaña del navegador se quede sin memoria a mitad de un export.
 
-Además, un clip fuente de más de 30s se **exporta en varias partes automáticamente** en vez de rechazarse: cada parte es un export independiente de hasta 30s, con su propio segmento de gameplay de fondo (o el gameplay en loop, si es más corto que el fuente) y sus propios subtítulos si aplica. El límite es 30 partes (~15 minutos de fuente); más que eso sí se rechaza, porque cada parte se procesa secuencialmente en el navegador.
+Además, un clip fuente de más de 30s se **exporta en varias partes automáticamente** en vez de rechazarse: cada parte es un export independiente de hasta 30s, con su propio segmento de gameplay de fondo (o el gameplay en loop, si es más corto que el fuente) y sus propios subtítulos si aplica. No hay límite en la cantidad de partes; un clip fuente más largo simplemente genera más partes, procesadas secuencialmente en el navegador (lo que toma más tiempo en total).
 # molko

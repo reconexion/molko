@@ -1,5 +1,6 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { transcodeApi } from "./api";
 
 // Hard caps on upload size. ffmpeg.wasm runs single-threaded in the tab's own
 // heap, so a very large source/gameplay pair can exhaust browser memory and
@@ -16,12 +17,6 @@ export const MAX_COMBINED_BYTES = 450 * 1024 * 1024; // 450MB source + gameplay 
 // instead of rejected outright. (Lowered from 90s: some heavy/high-bitrate
 // clips still aborted with an out-of-memory error at higher values.)
 export const MAX_CHUNK_SECONDS = 30;
-
-// Each chunk is still a full sequential export, so an extremely long source
-// (hours) would take an impractically long time and produce an unwieldy
-// number of parts. This caps it at 15 minutes of source — plenty for the
-// short-form "brainrot" format this editor targets.
-export const MAX_CHUNKS = 30;
 
 export class VideoTooLargeError extends Error {}
 
@@ -65,14 +60,11 @@ export interface Chunk {
 
 // Splits a source clip's duration into consecutive ~MAX_CHUNK_SECONDS
 // windows (the last one shorter) instead of rejecting long clips outright —
-// each window gets composed as its own export in the UI's export loop.
+// each window gets composed as its own export in the UI's export loop. No cap
+// on the resulting part count: however long the source is, it just produces
+// more sequential parts (each still processed one at a time in the browser).
 export function planChunks(sourceDuration: number): Chunk[] {
   const total = Math.max(1, Math.ceil(sourceDuration / MAX_CHUNK_SECONDS));
-  if (total > MAX_CHUNKS) {
-    throw new VideoTooLargeError(
-      `El clip fuente dura ${Math.round(sourceDuration)}s, lo que daría ${total} partes. El máximo es ${MAX_CHUNKS} partes (~${(MAX_CHUNKS * MAX_CHUNK_SECONDS) / 60} minutos) porque cada parte se procesa en tu navegador, una tras otra.`,
-    );
-  }
   const chunks: Chunk[] = [];
   for (let i = 0; i < total; i++) {
     const start = i * MAX_CHUNK_SECONDS;
@@ -94,7 +86,8 @@ export class FFmpegOutOfMemoryError extends Error {}
 
 let ffmpegSingleton: FFmpeg | null = null;
 let progressHandler: ((ratio: number) => void) | undefined;
-let fontBytes: Uint8Array | null = null;
+let dejaVuFontBytes: Uint8Array | null = null;
+let komikaFontBytes: Uint8Array | null = null;
 let recentLogs: string[] = [];
 
 export async function loadFFmpeg(onLog?: (message: string) => void): Promise<FFmpeg> {
@@ -208,31 +201,39 @@ async function detectVideoCodec(ffmpeg: FFmpeg, inputName: string): Promise<stri
   return codec;
 }
 
-export class UnsupportedCodecError extends Error {}
-
 // This ffmpeg.wasm build (@ffmpeg/core, see package.json) is compiled without
 // libdav1d/libaom, so AV1 falls back to ffmpeg's native software AV1 decoder
 // — which, in this build, doesn't actually work: it fails immediately with
 // "Failed to get pixel format" / "Missing Sequence Header" on every frame
 // (confirmed in practice on a real 720p/12MB AV1 clip; not a memory issue —
 // a from-scratch re-encode pass hit the exact same decode failure). There is
-// no way to salvage this client-side with the current core, so we detect it
-// up front and reject with a clear, actionable message instead of failing
-// deep into export.
-export async function assertSourceDecodable(file: File): Promise<void> {
+// no way to salvage this client-side with the current core, so instead of
+// rejecting the file we hand it to the local backend (which shells out to the
+// system's real ffmpeg) and swap in the H.264 copy it returns.
+export type DecodePrepStatus = "probing" | "converting";
+
+export async function ensureDecodableSource(
+  file: File,
+  onStatus?: (status: DecodePrepStatus) => void,
+  onConvertProgress?: (ratio: number) => void,
+): Promise<File> {
+  onStatus?.("probing");
   const ffmpeg = await loadFFmpeg();
   const probeName = `probe${extOf(file.name)}`;
   await ffmpeg.writeFile(probeName, await fetchFile(file));
+  let codec: string | null;
   try {
-    const codec = await detectVideoCodec(ffmpeg, probeName);
-    if (codec === "av1") {
-      throw new UnsupportedCodecError(
-        `"${file.name}" está codificado en AV1, que este editor no puede procesar en el navegador (el motor ffmpeg.wasm no lo soporta aquí). Conviértelo a H.264 antes de subirlo — por ejemplo con HandBrake, o \`ffmpeg -i "${file.name}" -c:v libx264 -c:a copy salida.mp4\` — y vuelve a intentarlo.`,
-      );
-    }
+    codec = await detectVideoCodec(ffmpeg, probeName);
   } finally {
     await ffmpeg.deleteFile(probeName).catch(() => {});
   }
+
+  if (codec !== "av1") return file;
+
+  onStatus?.("converting");
+  const converted = await transcodeApi.transcode(file, onConvertProgress);
+  const convertedName = `${file.name.replace(/\.[^.]+$/, "")}-h264.mp4`;
+  return new File([converted], convertedName, { type: "video/mp4" });
 }
 
 function extOf(filename: string): string {
@@ -241,15 +242,23 @@ function extOf(filename: string): string {
 }
 
 async function ensureFont(ffmpeg: FFmpeg): Promise<void> {
-  if (!fontBytes) {
-    fontBytes = await fetchFile("/fonts/DejaVuSans-Bold.ttf");
+  if (!dejaVuFontBytes) {
+    dejaVuFontBytes = await fetchFile("/fonts/DejaVuSans-Bold.ttf");
+  }
+  if (!komikaFontBytes) {
+    komikaFontBytes = await fetchFile("/fonts/KomikaAxis.ttf");
   }
   try {
     await ffmpeg.createDir("/fonts");
   } catch {
     // already exists
   }
-  await ffmpeg.writeFile("/fonts/DejaVuSans-Bold.ttf", fontBytes);
+  // writeFile() transfers (detaches) the Uint8Array's underlying buffer to
+  // the worker via postMessage, so writing the cached array directly would
+  // leave it detached and unusable on the next chunk's export — .slice()
+  // copies into a fresh buffer each time, leaving the cached original intact.
+  await ffmpeg.writeFile("/fonts/DejaVuSans-Bold.ttf", dejaVuFontBytes.slice());
+  await ffmpeg.writeFile("/fonts/KomikaAxis.ttf", komikaFontBytes.slice());
 }
 
 export async function extractAudio(file: File, onProgress?: (ratio: number) => void): Promise<Blob> {
@@ -413,6 +422,17 @@ export async function composeBrainrotVideo({
       "[outv]",
       "-map",
       "0:a?",
+      // Drops all container/stream metadata carried over from the source and
+      // gameplay inputs (creation_time, device/GPS tags, etc.) instead of
+      // passing it through to the output. `-metadata encoder=` alone can't
+      // suppress the mp4 muxer's own "encoder"/version tag — the mov muxer
+      // writes that one itself at write_header time regardless — so
+      // `+bitexact` is needed too: it's the flag that actually omits
+      // identifying library/version strings from the output.
+      "-map_metadata",
+      "-1",
+      "-fflags",
+      "+bitexact",
       "-threads",
       String(pickThreadCount()),
       "-c:v",

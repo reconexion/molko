@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import transcription
+from app.api.routes import transcode, transcription
 from app.core.config import settings
 
 app = FastAPI(title=settings.app_name)
@@ -15,6 +15,7 @@ app.add_middleware(
 )
 
 app.include_router(transcription.router)
+app.include_router(transcode.router)
 
 
 @app.get("/health")
