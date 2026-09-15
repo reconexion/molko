@@ -29,13 +29,13 @@ export function Switch({ checked, onChange, disabled, label, hint }: SwitchProps
         </label>
       </div>
       {(label || hint) && (
-        <div className="flex flex-col gap-0.5 pt-0.5">
+        <div className="flex flex-col gap-1 pt-0.5">
           {label && (
-            <label htmlFor={id} className="cursor-pointer text-sm font-medium text-secondary select-none">
+            <label htmlFor={id} className="cursor-pointer text-base font-semibold text-primary select-none">
               {label}
             </label>
           )}
-          {hint && <span className="text-sm text-tertiary">{hint}</span>}
+          {hint && <span className="text-sm text-secondary">{hint}</span>}
         </div>
       )}
     </StyledWrapper>

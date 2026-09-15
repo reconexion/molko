@@ -73,6 +73,20 @@ export function planChunks(sourceDuration: number): Chunk[] {
   return chunks;
 }
 
+// When the "partes de 1 minuto" option is on, pairs up consecutive ~30s
+// chunks instead of doubling MAX_CHUNK_SECONDS itself — each chunk in a pair
+// still gets composed independently (keeping the per-compose memory
+// footprint that 30s chunking exists for), and the pair is concatenated
+// afterwards via concatVideoParts. The last group is a lone chunk when the
+// total count is odd.
+export function groupChunksIntoMinuteParts(chunks: Chunk[]): Chunk[][] {
+  const groups: Chunk[][] = [];
+  for (let i = 0; i < chunks.length; i += 2) {
+    groups.push(chunks.slice(i, i + 2));
+  }
+  return groups;
+}
+
 // Decides how to window the gameplay clip for one source chunk: a direct
 // (fast, seeked) slice when the gameplay clip already covers this time range,
 // or a looped one when it's shorter and needs to repeat to fill it.
@@ -463,4 +477,36 @@ export async function composeBrainrotVideo({
   }
 
   return new Blob([data as BlobPart], { type: "video/mp4" });
+}
+
+// Joins 2+ parts previously produced by composeBrainrotVideo (same codec,
+// resolution and fps by construction) into one file via ffmpeg's concat
+// demuxer with a stream copy — no re-encode, so it's cheap and doesn't add to
+// the per-part memory footprint the 30s chunking exists to keep low.
+export async function concatVideoParts(parts: Blob[]): Promise<Blob> {
+  const ffmpeg = await loadFFmpeg();
+  const names = parts.map((_, i) => `concat_part_${i}.mp4`);
+  const listName = "concat_list.txt";
+  const outputName = "concat_output.mp4";
+
+  for (const [i, part] of parts.entries()) {
+    await ffmpeg.writeFile(names[i], await fetchFile(part));
+  }
+  await ffmpeg.writeFile(listName, names.map((name) => `file '${name}'`).join("\n") + "\n");
+
+  try {
+    await execOrThrow(ffmpeg, ["-f", "concat", "-safe", "0", "-i", listName, "-c", "copy", outputName]);
+
+    const data = await ffmpeg.readFile(outputName);
+    if ((data as Uint8Array).byteLength === 0) {
+      throw new FFmpegExecError("ffmpeg produjo un archivo vacío al juntar las partes");
+    }
+    return new Blob([data as BlobPart], { type: "video/mp4" });
+  } finally {
+    await Promise.all([
+      ...names.map((n) => ffmpeg.deleteFile(n).catch(() => {})),
+      ffmpeg.deleteFile(listName).catch(() => {}),
+      ffmpeg.deleteFile(outputName).catch(() => {}),
+    ]);
+  }
 }

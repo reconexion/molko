@@ -5,9 +5,11 @@ import { buildAssSubtitles, sliceWordsForChunk, type PartLabel } from "../lib/as
 import {
   assertWithinMemoryBudget,
   composeBrainrotVideo,
+  concatVideoParts,
   ensureDecodableSource,
   extractAudio,
   getVideoDuration,
+  groupChunksIntoMinuteParts,
   MAX_CHUNK_SECONDS,
   planChunks,
   planGameplayWindow,
@@ -48,6 +50,7 @@ export function EditorPage() {
   const [chunkInfo, setChunkInfo] = useState<{ index: number; total: number } | null>(null);
   const [zipping, setZipping] = useState(false);
   const [showPartLabel, setShowPartLabel] = useState(false);
+  const [joinMinuteParts, setJoinMinuteParts] = useState(false);
 
   const busy =
     stage === "converting" || stage === "extracting-audio" || stage === "transcribing" || stage === "exporting";
@@ -131,34 +134,47 @@ export function EditorPage() {
         getVideoDuration(gameplayFile),
       ]);
       // A clip longer than MAX_CHUNK_SECONDS gets split into consecutive
-      // parts instead of rejected — each one is its own full export.
+      // parts instead of rejected — each one is its own full export. When
+      // "1 minuto por parte" is on, consecutive pairs of those ~30s chunks
+      // are grouped here and concatenated below into a single ~60s file —
+      // each half is still composed independently at the same memory-safe
+      // 30s window, only the final files change.
       const chunks = planChunks(sourceDuration);
+      const groups = joinMinuteParts ? groupChunksIntoMinuteParts(chunks) : chunks.map((chunk) => [chunk]);
 
       const newResults: ExportResult[] = [];
-      for (const [index, chunk] of chunks.entries()) {
-        setChunkInfo({ index, total: chunks.length });
-        setProgress(0);
+      let stepIndex = 0;
+      for (const [groupIndex, group] of groups.entries()) {
+        const partBlobs: Blob[] = [];
+        for (const chunk of group) {
+          setChunkInfo({ index: stepIndex, total: chunks.length });
+          setProgress(0);
 
-        const chunkWords = withSubtitles && words ? sliceWordsForChunk(words, chunk.start, chunk.duration) : [];
-        const partLabel: PartLabel | undefined =
-          showPartLabel && chunks.length > 1 ? { number: index + 1, duration: chunk.duration } : undefined;
-        const assContent =
-          chunkWords.length > 0 || partLabel ? buildAssSubtitles(chunkWords, partLabel) : undefined;
+          const chunkWords = withSubtitles && words ? sliceWordsForChunk(words, chunk.start, chunk.duration) : [];
+          const partLabel: PartLabel | undefined =
+            showPartLabel && groups.length > 1 ? { number: groupIndex + 1, duration: chunk.duration } : undefined;
+          const assContent =
+            chunkWords.length > 0 || partLabel ? buildAssSubtitles(chunkWords, partLabel) : undefined;
 
-        const blob = await composeBrainrotVideo({
-          sourceFile: readySource,
-          gameplayFile,
-          assContent,
-          onProgress: setProgress,
-          sourceWindow: chunk,
-          gameplayWindow: planGameplayWindow(chunk, gameplayDuration),
-        });
+          const blob = await composeBrainrotVideo({
+            sourceFile: readySource,
+            gameplayFile,
+            assContent,
+            onProgress: setProgress,
+            sourceWindow: chunk,
+            gameplayWindow: planGameplayWindow(chunk, gameplayDuration),
+          });
+          partBlobs.push(blob);
+          stepIndex++;
+        }
+
+        const blob = partBlobs.length > 1 ? await concatVideoParts(partBlobs) : partBlobs[0];
 
         newResults.push({
           url: URL.createObjectURL(blob),
           blob,
-          label: chunks.length > 1 ? `Parte ${index + 1} de ${chunks.length}` : "video",
-          filename: chunks.length > 1 ? `molko-brainrot-parte-${index + 1}.mp4` : "molko-brainrot.mp4",
+          label: groups.length > 1 ? `Parte ${groupIndex + 1} de ${groups.length}` : "video",
+          filename: groups.length > 1 ? `molko-brainrot-parte-${groupIndex + 1}.mp4` : "molko-brainrot.mp4",
         });
         setResults([...newResults]);
       }
@@ -224,13 +240,20 @@ export function EditorPage() {
       {error && <p className="mt-4 text-sm text-error-primary">{error}</p>}
 
       {(stage === "idle" || stage === "ready") && (
-        <div className="mt-6">
+        <div className="mt-6 flex flex-col gap-4">
           <Switch
             checked={showPartLabel}
             onChange={setShowPartLabel}
             disabled={busy}
             label='Mostrar "Parte N" en el centro de cada parte'
             hint="Solo aplica si el export queda dividido en varias partes"
+          />
+          <Switch
+            checked={joinMinuteParts}
+            onChange={setJoinMinuteParts}
+            disabled={busy}
+            label="Partes de 1 minuto en vez de 30s"
+            hint="Junta cada dos partes de 30s en un solo archivo de ~1 minuto"
           />
         </div>
       )}
