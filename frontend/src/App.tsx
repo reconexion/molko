@@ -1,10 +1,11 @@
+import { Logo } from "./components/Logo";
 import { PatternBackground } from "./components/PatternBackground";
 import { EditorPage } from "./pages/EditorPage";
 
 function Nav() {
   return (
     <header className="relative z-10 flex items-center justify-between border-b border-secondary px-6 py-4">
-      <span className="text-lg font-bold text-primary">Molko</span>
+      <Logo />
     </header>
   );
 }
