@@ -298,7 +298,7 @@
     --color-text-secondary: var(--color-neutral-700);
     --color-text-secondary_hover: var(--color-neutral-800);
     --color-text-tertiary_hover: var(--color-neutral-700);
-    --color-text-brand-secondary: var(--color-brand-700);
+    --color-text-brand-secondary: var(--color-neutral-900);
     --color-text-placeholder: var(--color-neutral-500);
     --color-text-brand-tertiary: var(--color-brand-600);
     --color-text-editor-icon-fg: var(--color-neutral-400);
@@ -320,7 +320,7 @@
     --color-border-tertiary: var(--color-neutral-100);
     --color-border-error: var(--color-red-500);
     --color-border-error_subtle: var(--color-red-300);
-    --color-border-brand: var(--color-brand-500);
+    --color-border-brand: var(--color-neutral-900);
     --color-border-brand_alt: var(--color-brand-600);
 
     /* FOREGROUND COLORS */
@@ -332,7 +332,7 @@
     --color-fg-secondary_hover: var(--color-neutral-800);
     --color-fg-primary: var(--color-neutral-900);
     --color-fg-brand-secondary: var(--color-brand-500);
-    --color-fg-brand-primary: var(--color-brand-600);
+    --color-fg-brand-primary: var(--color-white);
     --color-fg-quaternary: var(--color-neutral-400);
     --color-fg-quaternary_hover: var(--color-neutral-500);
     --color-fg-error-primary: var(--color-red-600);
@@ -353,7 +353,7 @@
     --color-bg-warning-secondary: var(--color-yellow-100);
     --color-bg-success-primary: var(--color-green-50);
     --color-bg-success-secondary: var(--color-green-100);
-    --color-bg-brand-solid: var(--color-brand-600);
+    --color-bg-brand-solid: var(--color-white);
     --color-bg-secondary-solid: var(--color-neutral-600);
     --color-bg-error-solid: var(--color-red-600);
     --color-bg-warning-solid: var(--color-yellow-600);
@@ -361,7 +361,7 @@
     --color-bg-secondary_hover: var(--color-neutral-100);
     --color-bg-primary_hover: var(--color-neutral-50);
     --color-bg-active: var(--color-neutral-50);
-    --color-bg-brand-solid_hover: var(--color-brand-700);
+    --color-bg-brand-solid_hover: var(--color-neutral-100);
     --color-bg-error-primary: var(--color-red-50);
     --color-bg-brand-secondary: var(--color-brand-100);
     --color-bg-secondary: var(--color-neutral-50);
@@ -384,7 +384,7 @@
     --color-featured-icon-light-fg-success: var(--color-green-600);
     --color-featured-icon-light-fg-warning: var(--color-yellow-600);
     --color-focus-ring-error: var(--color-red-500);
-    --color-focus-ring: var(--color-brand-500);
+    --color-focus-ring: var(--color-neutral-900);
     --color-footer-button-fg: var(--color-brand-200);
     --color-footer-button-fg_hover: var(--color-white);
     --color-icon-fg-brand: var(--color-brand-600);
@@ -679,7 +679,7 @@
         --color-border-secondary: var(--color-neutral-800);
         --color-border-error_subtle: var(--color-red-500);
         --color-border-primary: var(--color-neutral-700);
-        --color-border-brand: var(--color-brand-400);
+        --color-border-brand: var(--color-neutral-50);
         --color-border-error: var(--color-red-400);
         --color-border-tertiary: var(--color-neutral-800);
         --color-border-brand_alt: var(--color-neutral-700);
@@ -693,7 +693,7 @@
         --color-fg-secondary_hover: var(--color-neutral-200);
         --color-fg-primary: var(--color-white);
         --color-fg-brand-secondary: var(--color-brand-500);
-        --color-fg-brand-primary: var(--color-brand-500);
+        --color-fg-brand-primary: var(--color-white);
         --color-fg-quaternary: var(--color-neutral-600);
         --color-fg-quaternary_hover: var(--color-neutral-500);
         --color-fg-error-primary: var(--color-red-500);
@@ -713,7 +713,7 @@
         --color-bg-warning-secondary: var(--color-yellow-600);
         --color-bg-success-primary: var(--color-green-950);
         --color-bg-success-secondary: var(--color-green-600);
-        --color-bg-brand-solid: var(--color-brand-600);
+        --color-bg-brand-solid: var(--color-white);
         --color-bg-secondary-solid: var(--color-neutral-600);
         --color-bg-error-solid: var(--color-red-600);
         --color-bg-warning-solid: var(--color-yellow-600);
@@ -721,7 +721,7 @@
         --color-bg-secondary_hover: var(--color-neutral-800);
         --color-bg-primary_hover: var(--color-neutral-900);
         --color-bg-active: var(--color-neutral-800);
-        --color-bg-brand-solid_hover: var(--color-brand-500);
+        --color-bg-brand-solid_hover: var(--color-neutral-300);
         --color-bg-error-primary: var(--color-red-950);
         --color-bg-brand-secondary: var(--color-brand-600);
         --color-bg-secondary: var(--color-neutral-900);
@@ -743,7 +743,7 @@
         --color-featured-icon-light-fg-success: var(--color-green-200);
         --color-featured-icon-light-fg-warning: var(--color-yellow-200);
         --color-focus-ring-error: var(--color-red-500);
-        --color-focus-ring: var(--color-brand-500);
+        --color-focus-ring: var(--color-neutral-50);
         --color-footer-button-fg: var(--color-neutral-300);
         --color-footer-button-fg_hover: var(--color-neutral-100);
         --color-icon-fg-brand: var(--color-neutral-400);

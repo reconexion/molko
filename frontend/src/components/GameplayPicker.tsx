@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { PlayCircle } from "@untitledui/icons";
 import { gameplayOptions, loadGameplayFile, type GameplayOption } from "../lib/gameplays";
+import { useI18n } from "../i18n";
 import { SegmentedOptions } from "./SegmentedOptions";
 
 interface GameplayPickerProps {
@@ -10,6 +11,7 @@ interface GameplayPickerProps {
 }
 
 export function GameplayPicker({ selectedId, onSelect, disabled }: GameplayPickerProps) {
+  const { t } = useI18n();
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,7 +25,7 @@ export function GameplayPicker({ selectedId, onSelect, disabled }: GameplayPicke
       const file = await loadGameplayFile(option);
       onSelect(file, option);
     } catch {
-      setError(`No se pudo cargar "${option.label}"`);
+      setError(t("gameplay.loadError", { name: option.label }));
     } finally {
       setLoadingId(null);
     }
@@ -32,11 +34,11 @@ export function GameplayPicker({ selectedId, onSelect, disabled }: GameplayPicke
   if (gameplayOptions.length === 0) {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-sm font-semibold text-secondary">2. Gameplay de fondo</p>
+        <p className="text-sm font-semibold text-secondary">{t("editor.gameplay.label")}</p>
         <div className="rounded-xl bg-secondary px-6 py-6 text-center ring-1 ring-secondary ring-inset">
           <p className="text-sm text-tertiary">
-            Todavía no hay gameplays disponibles. Agrega archivos de video a{" "}
-            <code className="text-quaternary">frontend/src/assets/gameplays/</code> para que aparezcan aquí.
+            {t("gameplay.empty.before")}{" "}
+            <code className="text-quaternary">frontend/src/assets/gameplays/</code> {t("gameplay.empty.after")}
           </p>
         </div>
       </div>
@@ -45,7 +47,7 @@ export function GameplayPicker({ selectedId, onSelect, disabled }: GameplayPicke
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-semibold text-secondary">2. Gameplay de fondo</p>
+      <p className="text-sm font-semibold text-secondary">{t("editor.gameplay.label")}</p>
       <div className="flex flex-col gap-3 rounded-xl bg-primary p-4 ring-1 ring-secondary ring-inset">
         <GameplayPreview option={selectedOption} loading={loadingId !== null} />
         <SegmentedOptions
@@ -65,6 +67,8 @@ export function GameplayPicker({ selectedId, onSelect, disabled }: GameplayPicke
 }
 
 function GameplayPreview({ option, loading }: { option: GameplayOption | null; loading: boolean }) {
+  const { t } = useI18n();
+
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-secondary ring-1 ring-secondary">
       {option ? (
@@ -81,12 +85,12 @@ function GameplayPreview({ option, loading }: { option: GameplayOption | null; l
       ) : (
         <div className="flex size-full flex-col items-center justify-center gap-1 text-tertiary">
           <PlayCircle className="size-6" />
-          <p className="text-xs">Elige un gameplay para verlo aquí</p>
+          <p className="text-xs">{t("gameplay.preview")}</p>
         </div>
       )}
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-overlay/40 text-sm font-medium text-white">
-          Cargando…
+          {t("gameplay.loading")}
         </div>
       )}
     </div>

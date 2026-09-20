@@ -1,5 +1,6 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { t } from "../i18n";
 import { transcodeApi } from "./api";
 
 // Hard caps on upload size. ffmpeg.wasm runs single-threaded in the tab's own
@@ -24,32 +25,55 @@ export function assertWithinMemoryBudget(files: File[]): void {
   for (const file of files) {
     if (file.size > MAX_FILE_BYTES) {
       throw new VideoTooLargeError(
-        `"${file.name}" pesa ${(file.size / 1024 / 1024).toFixed(0)}MB. El máximo por video es ${MAX_FILE_BYTES / 1024 / 1024}MB porque el procesamiento corre en tu navegador.`,
+        t("video.tooLarge", {
+          name: file.name,
+          size: (file.size / 1024 / 1024).toFixed(0),
+          max: MAX_FILE_BYTES / 1024 / 1024,
+        }),
       );
     }
   }
   const combined = files.reduce((sum, f) => sum + f.size, 0);
   if (combined > MAX_COMBINED_BYTES) {
     throw new VideoTooLargeError(
-      `Los videos combinados pesan ${(combined / 1024 / 1024).toFixed(0)}MB, más del máximo de ${MAX_COMBINED_BYTES / 1024 / 1024}MB soportado en el navegador. Usa clips más cortos o de menor resolución.`,
+      t("video.combinedTooLarge", {
+        size: (combined / 1024 / 1024).toFixed(0),
+        max: MAX_COMBINED_BYTES / 1024 / 1024,
+      }),
     );
   }
 }
+
+// Si el navegador no llega a leer los metadatos (códec que no soporta, o Safari en iPhone,
+// que a veces no precarga un <video> suelto), se rechaza en vez de dejar el export colgado.
+const METADATA_TIMEOUT_MS = 20_000;
 
 export function getVideoDuration(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const video = document.createElement("video");
-    video.preload = "metadata";
-    video.onloadedmetadata = () => {
+    const timer = setTimeout(fail, METADATA_TIMEOUT_MS);
+
+    function cleanup() {
+      clearTimeout(timer);
       URL.revokeObjectURL(url);
+    }
+    function fail() {
+      cleanup();
+      reject(new Error(t("video.unreadable", { name: file.name })));
+    }
+
+    video.preload = "metadata";
+    // iOS Safari solo carga medios "sueltos" de forma fiable si están silenciados y en línea.
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => {
+      cleanup();
       resolve(video.duration);
     };
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error(`No se pudo leer "${file.name}" como video`));
-    };
+    video.onerror = fail;
     video.src = url;
+    video.load();
   });
 }
 
@@ -181,7 +205,7 @@ async function execOrThrow(ffmpeg: FFmpeg, args: string[]): Promise<void> {
   const code = await ffmpeg.exec(args);
   if (code !== 0) {
     console.error("[ffmpeg] failed, code", code, "\nargs:", args.join(" "), "\nfull log:\n" + recentLogs.join("\n"));
-    const tail = recentLogs.slice(-5).join(" ") || "sin más detalle";
+    const tail = recentLogs.slice(-5).join(" ") || t("video.noDetail");
 
     // ffmpeg-core's exec() wrapper swallows the WASM "Aborted(...)" runtime
     // exception (an unrecoverable fatal error, almost always OOM inside the
@@ -193,12 +217,10 @@ async function execOrThrow(ffmpeg: FFmpeg, args: string[]): Promise<void> {
     if (recentLogs.some((line) => line.includes("Aborted("))) {
       ffmpeg.terminate();
       ffmpegSingleton = null;
-      throw new FFmpegOutOfMemoryError(
-        "Tu navegador se quedó sin memoria procesando este video. Prueba con un clip más corto o de menor resolución, o cierra otras pestañas para liberar RAM.",
-      );
+      throw new FFmpegOutOfMemoryError(t("video.outOfMemory"));
     }
 
-    throw new FFmpegExecError(`ffmpeg falló (código ${code}): ${tail}`);
+    throw new FFmpegExecError(t("video.ffmpegFailed", { code, tail }));
   }
 }
 
@@ -473,7 +495,7 @@ export async function composeBrainrotVideo({
   await Promise.all(cleanup);
 
   if ((data as Uint8Array).byteLength === 0) {
-    throw new FFmpegExecError("ffmpeg produjo un archivo vacío — revisa que ambos videos tengan el mismo formato/duración válidos");
+    throw new FFmpegExecError(t("video.emptyOutput"));
   }
 
   return new Blob([data as BlobPart], { type: "video/mp4" });
@@ -499,7 +521,7 @@ export async function concatVideoParts(parts: Blob[]): Promise<Blob> {
 
     const data = await ffmpeg.readFile(outputName);
     if ((data as Uint8Array).byteLength === 0) {
-      throw new FFmpegExecError("ffmpeg produjo un archivo vacío al juntar las partes");
+      throw new FFmpegExecError(t("video.emptyConcat"));
     }
     return new Blob([data as BlobPart], { type: "video/mp4" });
   } finally {

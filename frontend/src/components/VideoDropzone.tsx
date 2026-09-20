@@ -1,6 +1,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import { UploadCloud02 } from "@untitledui/icons";
 import { FeaturedIcon } from "./foundations/featured-icon/featured-icon";
+import { useI18n } from "../i18n";
 import { cx } from "../utils/cx";
 
 interface VideoDropzoneProps {
@@ -11,6 +12,7 @@ interface VideoDropzoneProps {
 }
 
 export function VideoDropzone({ label, file, onSelect, disabled }: VideoDropzoneProps) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -60,8 +62,8 @@ export function VideoDropzone({ label, file, onSelect, disabled }: VideoDropzone
         ) : (
           <div className="flex flex-col gap-1">
             <p className="text-sm">
-              <span className="font-semibold text-brand-secondary">Haz clic para elegir</span>{" "}
-              <span className="text-tertiary">o arrastra un video aquí</span>
+              <span className="font-semibold text-brand-secondary">{t("dropzone.click")}</span>{" "}
+              <span className="text-tertiary">{t("dropzone.drag")}</span>
             </p>
           </div>
         )}

@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
-import { ApiError, transcriptionApi, type TranscriptWord } from "../lib/api";
-import { buildAssSubtitles, sliceWordsForChunk, type PartLabel } from "../lib/ass";
+import { useI18n, t as translate } from "../i18n";
+import { ApiError } from "../lib/api";
+import { buildAssSubtitles, type PartLabel } from "../lib/ass";
 import {
   assertWithinMemoryBudget,
   composeBrainrotVideo,
   concatVideoParts,
   ensureDecodableSource,
-  extractAudio,
   getVideoDuration,
   groupChunksIntoMinuteParts,
   MAX_CHUNK_SECONDS,
@@ -22,29 +22,27 @@ import { Button } from "../components/base/buttons/button";
 import { ProgressBarBase } from "../components/base/progress-indicators/progress-indicators";
 import { Badge } from "../components/base/badges/badges";
 
-type Stage =
-  | "idle"
-  | "converting"
-  | "extracting-audio"
-  | "transcribing"
-  | "ready"
-  | "exporting"
-  | "done";
+type Stage = "idle" | "converting" | "exporting" | "done";
 
 interface ExportResult {
   url: string;
   blob: Blob;
-  label: string;
-  filename: string;
+  /** Número de parte, o null cuando el export es un solo video. */
+  part: number | null;
+  totalParts: number;
 }
 
-export function EditorPage() {
-  const [sourceFile, setSourceFile] = useState<File | null>(null);
+interface EditorPageProps {
+  initialSourceFile?: File | null;
+}
+
+export function EditorPage({ initialSourceFile = null }: EditorPageProps) {
+  const { t } = useI18n();
+  const [sourceFile, setSourceFile] = useState<File | null>(initialSourceFile);
   const [gameplayFile, setGameplayFile] = useState<File | null>(null);
   const [gameplayId, setGameplayId] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState(0);
-  const [words, setWords] = useState<TranscriptWord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ExportResult[]>([]);
   const [chunkInfo, setChunkInfo] = useState<{ index: number; total: number } | null>(null);
@@ -52,60 +50,32 @@ export function EditorPage() {
   const [showPartLabel, setShowPartLabel] = useState(false);
   const [joinMinuteParts, setJoinMinuteParts] = useState(false);
 
-  const busy =
-    stage === "converting" || stage === "extracting-audio" || stage === "transcribing" || stage === "exporting";
+  const busy = stage === "converting" || stage === "exporting";
 
-  function reset(nextStage: Stage = "idle") {
-    setError(null);
-    setProgress(0);
-    setStage(nextStage);
-  }
+  // Progreso combinado de todas las partes del export (no solo la parte actual),
+  // para poder estimar el tiempo restante del proceso completo.
+  const exportOverallRatio =
+    stage === "exporting" && chunkInfo ? (chunkInfo.index + progress) / chunkInfo.total : undefined;
 
-  async function handleGenerateSubtitles() {
-    if (!sourceFile || !gameplayFile) {
-      setError("Sube el clip fuente y el gameplay de fondo primero");
-      return;
-    }
-    reset();
-    try {
-      assertWithinMemoryBudget([sourceFile, gameplayFile]);
-      const readySource = await ensureDecodableSource(
-        sourceFile,
-        (status) => {
-          if (status === "converting") {
-            setStage("converting");
-            setProgress(0);
+  const convertingEta = useEtaSeconds(stage === "converting", stage === "converting" ? progress : undefined);
+  const exportingEta = useEtaSeconds(stage === "exporting", exportOverallRatio);
+
+  const modalStageInfo: { title: string; ratio: number | undefined; etaSeconds: number | null } | null =
+    stage === "converting"
+      ? { title: t("editor.stage.converting"), ratio: progress, etaSeconds: convertingEta }
+      : stage === "exporting"
+        ? {
+            title:
+              chunkInfo && chunkInfo.total > 1
+                ? t("editor.stage.composingPart", { index: chunkInfo.index + 1, total: chunkInfo.total })
+                : t("editor.stage.composingFinal"),
+            ratio: exportOverallRatio,
+            etaSeconds: exportingEta,
           }
-        },
-        setProgress,
-      );
-      if (readySource !== sourceFile) setSourceFile(readySource);
+        : null;
 
-      setStage("extracting-audio");
-      const audioBlob = await extractAudio(readySource, setProgress);
-
-      setStage("transcribing");
-      setProgress(0);
-      const transcript = await transcriptionApi.transcribe(audioBlob);
-
-      if (transcript.words.length === 0) {
-        setError("No se detectó voz en el clip fuente. Revisa que tenga audio hablado.");
-        setStage("idle");
-        return;
-      }
-
-      setWords(transcript.words);
-      setStage("ready");
-    } catch (err) {
-      console.error("[molko] handleGenerateSubtitles failed:", err);
-      setError(describeError(err));
-      setStage("idle");
-    }
-  }
-
-  async function handleExport(withSubtitles: boolean) {
+  async function handleExport() {
     if (!sourceFile || !gameplayFile) return;
-    if (withSubtitles && !words) return;
 
     setError(null);
     setStage("exporting");
@@ -150,11 +120,11 @@ export function EditorPage() {
           setChunkInfo({ index: stepIndex, total: chunks.length });
           setProgress(0);
 
-          const chunkWords = withSubtitles && words ? sliceWordsForChunk(words, chunk.start, chunk.duration) : [];
           const partLabel: PartLabel | undefined =
-            showPartLabel && groups.length > 1 ? { number: groupIndex + 1, duration: chunk.duration } : undefined;
-          const assContent =
-            chunkWords.length > 0 || partLabel ? buildAssSubtitles(chunkWords, partLabel) : undefined;
+            showPartLabel && groups.length > 1
+              ? { text: t("editor.overlay.part", { n: groupIndex + 1 }), duration: chunk.duration }
+              : undefined;
+          const assContent = partLabel ? buildAssSubtitles([], partLabel) : undefined;
 
           const blob = await composeBrainrotVideo({
             sourceFile: readySource,
@@ -173,8 +143,8 @@ export function EditorPage() {
         newResults.push({
           url: URL.createObjectURL(blob),
           blob,
-          label: groups.length > 1 ? `Parte ${groupIndex + 1} de ${groups.length}` : "video",
-          filename: groups.length > 1 ? `molko-brainrot-parte-${groupIndex + 1}.mp4` : "molko-brainrot.mp4",
+          part: groups.length > 1 ? groupIndex + 1 : null,
+          totalParts: groups.length,
         });
         setResults([...newResults]);
       }
@@ -183,11 +153,19 @@ export function EditorPage() {
     } catch (err) {
       console.error("[molko] handleExport failed:", err);
       setError(describeError(err));
-      setStage(words ? "ready" : "idle");
+      setStage("idle");
     } finally {
       setChunkInfo(null);
     }
   }
+
+  // Etiqueta y nombre de archivo se calculan al mostrar, para que sigan el idioma activo.
+  const labelFor = (result: ExportResult) =>
+    result.part === null
+      ? t("editor.result.single")
+      : t("editor.result.part", { n: result.part, total: result.totalParts });
+  const filenameFor = (result: ExportResult) =>
+    result.part === null ? t("editor.file.single") : t("editor.file.part", { n: result.part });
 
   async function handleDownloadAllAsZip() {
     if (results.length === 0) return;
@@ -195,13 +173,13 @@ export function EditorPage() {
     try {
       const zip = new JSZip();
       for (const result of results) {
-        zip.file(result.filename, result.blob);
+        zip.file(filenameFor(result), result.blob);
       }
       const zipBlob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(zipBlob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "molko-brainrot-partes.zip";
+      link.download = t("editor.file.zip");
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -213,16 +191,12 @@ export function EditorPage() {
 
   return (
     <div className="w-full max-w-3xl rounded-2xl bg-primary p-6 shadow-xl ring-1 ring-secondary sm:p-8">
-      <h1 className="text-2xl font-bold text-primary">Nuevo video brainrot</h1>
-      <p className="mt-2 text-sm text-tertiary">
-        Todo el procesamiento ocurre en tu navegador. Un clip fuente más largo de {MAX_CHUNK_SECONDS}s se exporta en
-        varias partes automáticamente. Si el clip viene en AV1 (que el navegador no puede decodificar), se manda una
-        sola vez al backend local para convertirlo a H.264 antes de seguir.
-      </p>
+      <h2 className="text-2xl font-bold text-primary">{t("editor.title")}</h2>
+      <p className="mt-2 text-sm text-tertiary">{t("editor.description", { seconds: MAX_CHUNK_SECONDS })}</p>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <VideoDropzone
-          label="1. Clip fuente (con audio)"
+          label={t("editor.source.label")}
           file={sourceFile}
           onSelect={setSourceFile}
           disabled={busy}
@@ -239,65 +213,38 @@ export function EditorPage() {
 
       {error && <p className="mt-4 text-sm text-error-primary">{error}</p>}
 
-      {(stage === "idle" || stage === "ready") && (
+      {stage === "idle" && (
         <div className="mt-6 flex flex-col gap-4">
           <Switch
             checked={showPartLabel}
             onChange={setShowPartLabel}
             disabled={busy}
-            label='Mostrar "Parte N" en el centro de cada parte'
-            hint="Solo aplica si el export queda dividido en varias partes"
+            label={t("editor.switch.partLabel")}
+            hint={t("editor.switch.partLabel.hint")}
           />
           <Switch
             checked={joinMinuteParts}
             onChange={setJoinMinuteParts}
             disabled={busy}
-            label="Partes de 1 minuto en vez de 30s"
-            hint="Junta cada dos partes de 30s en un solo archivo de ~1 minuto"
+            label={t("editor.switch.minute")}
+            hint={t("editor.switch.minute.hint")}
           />
         </div>
       )}
 
       {stage === "idle" && (
         <div className="mt-6 flex flex-wrap gap-3">
-          <Button color="success" onClick={() => handleExport(false)} isDisabled={!sourceFile || !gameplayFile}>
-            Exportar sin subtítulos
-          </Button>
-          <Button color="success" onClick={handleGenerateSubtitles} isDisabled={!sourceFile || !gameplayFile}>
-            Generar subtítulos
+          <Button color="success" onClick={handleExport} isDisabled={!sourceFile || !gameplayFile}>
+            {t("editor.export")}
           </Button>
         </div>
       )}
 
-      {stage === "converting" && (
-        <StageProgress label="Convirtiendo clip de AV1 a H.264 en el backend…" ratio={progress} />
-      )}
-      {stage === "extracting-audio" && <StageProgress label="Extrayendo audio del clip…" ratio={progress} />}
-      {stage === "transcribing" && <StageProgress label="Transcribiendo audio…" ratio={undefined} />}
-
-      {stage === "ready" && words && (
-        <div className="mt-6 border-t border-secondary pt-4">
-          <h2 className="text-md font-semibold text-primary">Transcripción detectada</h2>
-          <p className="mt-2 text-sm text-tertiary">{words.map((w) => w.word).join(" ")}</p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Button color="success" onClick={handleGenerateSubtitles}>
-              Regenerar subtítulos
-            </Button>
-            <Button color="success" onClick={() => handleExport(true)}>
-              Exportar con subtítulos
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {stage === "exporting" && (
-        <StageProgress
-          label={
-            chunkInfo && chunkInfo.total > 1
-              ? `Componiendo parte ${chunkInfo.index + 1} de ${chunkInfo.total}…`
-              : "Componiendo video final…"
-          }
-          ratio={progress}
+      {modalStageInfo && (
+        <ProcessingModal
+          title={modalStageInfo.title}
+          ratio={modalStageInfo.ratio}
+          etaSeconds={modalStageInfo.etaSeconds}
         />
       )}
 
@@ -305,7 +252,7 @@ export function EditorPage() {
         <div className="mt-6 flex flex-col items-center gap-8">
           {results.length > 1 && (
             <Button color="success" onClick={handleDownloadAllAsZip} isDisabled={zipping} isLoading={zipping}>
-              {zipping ? "Preparando ZIP…" : `Descargar todo (${results.length} partes en .zip)`}
+              {zipping ? t("editor.result.zipping") : t("editor.result.zipAll", { n: results.length })}
             </Button>
           )}
           {results.map((result) => (
@@ -313,10 +260,10 @@ export function EditorPage() {
               key={result.url}
               className="flex w-full max-w-xs flex-col items-center gap-3 rounded-xl bg-secondary p-4 ring-1 ring-secondary"
             >
-              {results.length > 1 && <Badge color="success">{result.label}</Badge>}
+              {results.length > 1 && <Badge color="success">{labelFor(result)}</Badge>}
               <video src={result.url} controls className="w-full rounded-lg" />
-              <Button color="success" href={result.url} download={result.filename} className="w-full">
-                Descargar {result.label}
+              <Button color="success" href={result.url} download={filenameFor(result)} className="w-full">
+                {t("editor.result.download", { label: labelFor(result) })}
               </Button>
             </div>
           ))}
@@ -326,12 +273,99 @@ export function EditorPage() {
   );
 }
 
-function StageProgress({ label, ratio }: { label: string; ratio: number | undefined }) {
-  const value = ratio !== undefined ? Math.max(0, Math.min(100, Math.round(ratio * 100))) : 30;
+/**
+ * Estima el tiempo restante extrapolando a partir de lo que ya se tardó en
+ * llegar al progreso actual (elapsed / ratio = tiempo total estimado). Es un
+ * aproximado real basado en la velocidad observada, no un número inventado:
+ * se ignoran las primeras muestras (ratio o tiempo transcurrido muy chicos)
+ * porque ahí la extrapolación es muy ruidosa, y se suaviza con un promedio
+ * móvil para que el número no salte de un frame a otro.
+ */
+function useEtaSeconds(active: boolean, ratio: number | undefined): number | null {
+  const startRef = useRef<number | null>(null);
+  const smoothedRef = useRef<number | null>(null);
+  const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!active) {
+      startRef.current = null;
+      smoothedRef.current = null;
+      setEtaSeconds(null);
+      return;
+    }
+    if (startRef.current === null) startRef.current = Date.now();
+  }, [active]);
+
+  useEffect(() => {
+    if (!active || ratio === undefined || startRef.current === null) return;
+    const elapsedMs = Date.now() - startRef.current;
+    if (ratio < 0.04 || elapsedMs < 1200) return;
+
+    const remainingMs = Math.max(0, elapsedMs / ratio - elapsedMs);
+    const remainingSec = remainingMs / 1000;
+    smoothedRef.current =
+      smoothedRef.current === null ? remainingSec : smoothedRef.current * 0.75 + remainingSec * 0.25;
+    setEtaSeconds(Math.round(smoothedRef.current));
+  }, [active, ratio]);
+
+  return etaSeconds;
+}
+
+function formatEta(seconds: number): string {
+  const rounded = Math.max(5, Math.round(seconds / 5) * 5);
+  if (rounded < 60) return `~${rounded} s`;
+  const mins = Math.floor(rounded / 60);
+  const secs = rounded % 60;
+  return secs === 0 ? `~${mins} min` : `~${mins} min ${secs} s`;
+}
+
+function ProcessingModal({
+  title,
+  ratio,
+  etaSeconds,
+}: {
+  title: string;
+  ratio: number | undefined;
+  etaSeconds: number | null;
+}) {
+  const { t } = useI18n();
+  const percent = ratio !== undefined ? Math.max(0, Math.min(100, Math.round(ratio * 100))) : undefined;
+
   return (
-    <div className="mt-6">
-      <p className="mb-2 text-sm text-tertiary">{label}</p>
-      <ProgressBarBase value={value} className={ratio === undefined ? "animate-pulse" : undefined} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl bg-primary p-6 text-center shadow-xl ring-1 ring-secondary">
+        <svg fill="none" viewBox="0 0 20 20" className="mx-auto mb-4 size-10 text-primary">
+          <circle className="stroke-current opacity-25" cx="10" cy="10" r="8" fill="none" strokeWidth="2" />
+          <circle
+            className="origin-center animate-spin stroke-current"
+            cx="10"
+            cy="10"
+            r="8"
+            fill="none"
+            strokeWidth="2"
+            strokeDasharray="12.5 50"
+            strokeLinecap="round"
+          />
+        </svg>
+
+        <h2 className="text-md font-semibold text-primary">{title}</h2>
+        <p className="mt-2 text-sm text-tertiary">
+          {t("editor.modal.notice")}
+        </p>
+
+        <div className="mt-5">
+          <ProgressBarBase value={percent ?? 30} className={percent === undefined ? "animate-pulse" : undefined} />
+          {percent !== undefined && <p className="mt-2 text-sm font-medium text-secondary tabular-nums">{percent}%</p>}
+        </div>
+
+        <p className="mt-3 text-sm font-medium text-brand-secondary">
+          {etaSeconds !== null
+            ? t("editor.modal.eta", { eta: formatEta(etaSeconds) })
+            : percent !== undefined
+              ? t("editor.modal.calculating")
+              : t("editor.modal.typical")}
+        </p>
+      </div>
     </div>
   );
 }
@@ -340,5 +374,5 @@ function describeError(err: unknown): string {
   if (err instanceof VideoTooLargeError) return err.message;
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
-  return "Ocurrió un error inesperado. Intenta de nuevo.";
+  return translate("errors.unexpected");
 }

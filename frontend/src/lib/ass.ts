@@ -32,7 +32,8 @@ const MAX_CHUNK_DURATION_SECONDS = 3.2;
 // Shown dead-center on screen for the whole chunk when the export is split
 // into several parts and the "Parte N" option is enabled.
 export interface PartLabel {
-  number: number;
+  /** Texto ya traducido y listo para dibujar (p. ej. "PARTE 2" / "PART 2"). */
+  text: string;
   duration: number;
 }
 
@@ -115,7 +116,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
   if (partLabel) {
     lines.push(
-      `Dialogue: 1,${formatAssTime(0)},${formatAssTime(partLabel.duration)},Parte,,0,0,0,,PARTE ${partLabel.number}`,
+      `Dialogue: 1,${formatAssTime(0)},${formatAssTime(partLabel.duration)},Parte,,0,0,0,,${escapeAssText(partLabel.text)}`,
     );
   }
 

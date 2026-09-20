@@ -1,5 +1,6 @@
 import { useId } from "react";
 import styled from "styled-components";
+import { useI18n } from "../i18n";
 
 export interface SegmentedOption {
   id: string;
@@ -16,6 +17,7 @@ interface SegmentedOptionsProps {
 
 export function SegmentedOptions({ options, selectedId, onSelect, loadingId, disabled }: SegmentedOptionsProps) {
   const name = useId();
+  const { t } = useI18n();
 
   return (
     <StyledWrapper>
@@ -33,7 +35,7 @@ export function SegmentedOptions({ options, selectedId, onSelect, loadingId, dis
             />
             <label className="customCheckBoxWrapper" htmlFor={`${name}-${option.id}`}>
               <div className="customCheckBox">
-                <div className="inner">{loadingId === option.id ? "Cargando…" : option.label}</div>
+                <div className="inner">{loadingId === option.id ? t("gameplay.loading") : option.label}</div>
               </div>
             </label>
           </div>

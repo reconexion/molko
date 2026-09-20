@@ -1,23 +1,41 @@
-import { Logo } from "./components/Logo";
-import { PatternBackground } from "./components/PatternBackground";
-import { EditorPage } from "./pages/EditorPage";
-
-function Nav() {
-  return (
-    <header className="relative z-10 flex items-center justify-between border-b border-secondary px-6 py-4">
-      <Logo />
-    </header>
-  );
-}
+import { Navigate, Route, Routes } from "react-router-dom";
+import { SiteLayout } from "./components/SiteLayout";
+import { AppShell, DownloadRoute, EditorRoute } from "./pages/AppShell";
+import { AuthPage } from "./pages/AuthPage";
+import { GoogleDonePage } from "./pages/GoogleDonePage";
+import { LandingPage } from "./pages/LandingPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
+import { PricingPage } from "./pages/PricingPage";
+import { TermsPage } from "./pages/TermsPage";
+import { GuestOnly, RequireAuth, RequireSubscription } from "./routes/guards";
 
 export default function App() {
   return (
-    <div className="relative flex min-h-screen flex-col bg-primary">
-      <PatternBackground />
-      <Nav />
-      <main className="relative z-10 flex flex-1 justify-center px-4 py-10 sm:py-16">
-        <EditorPage />
-      </main>
-    </div>
+    <Routes>
+      <Route element={<SiteLayout />}>
+        <Route index element={<LandingPage />} />
+        <Route path="terms" element={<TermsPage />} />
+        <Route path="auth/google/done" element={<GoogleDonePage />} />
+
+        <Route element={<GuestOnly />}>
+          <Route path="login" element={<AuthPage mode="login" />} />
+          <Route path="register" element={<AuthPage mode="register" />} />
+        </Route>
+
+        <Route element={<RequireAuth />}>
+          <Route path="pricing" element={<PricingPage />} />
+          <Route element={<RequireSubscription />}>
+            <Route path="app" element={<AppShell />}>
+              <Route index element={<Navigate to="editor" replace />} />
+              <Route path="editor" element={<EditorRoute />} />
+              <Route path="download" element={<DownloadRoute />} />
+              <Route path="*" element={<Navigate to="/app/editor" replace />} />
+            </Route>
+          </Route>
+        </Route>
+
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
   );
 }
